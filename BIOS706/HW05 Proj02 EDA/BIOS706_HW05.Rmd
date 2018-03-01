@@ -1,0 +1,820 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Set up Environment
+```{r}
+library(tidyverse)
+library(GGally)
+library(gtools)
+library(scales)
+
+library(ComplexHeatmap)
+library(RColorBrewer)
+```
+
+file path
+```{r}
+# in windows
+workdir <- "D:\\GoogleDrive\\DellXPS\\2018_DukeSpring\\BIOS706_Intro_Practice_of_Biostat_II\\HW05 Proj02 EDA"
+```
+
+```{r}
+# in linux
+workdir <- "/media/clint/Data/GitRepo/Statistics/BIOS706/HW05 Proj02 EDA"
+#filePathData <- "/media/clint/Data/GoogleDrive/DellXPS/2018_DukeSpring/BIOS706_Intro_Practice_of_Biostat_II/HW05 Proj02 EDA"
+```
+
+# Import data
+```{r}
+dat_Team8 <- read.csv(file.path(workdir, "Team8.csv"))
+dat_Team8 <- dat_Team8 %>% select(-team)
+colnames(dat_Team8)[1] <- "sex"
+head(dat_Team8)
+```
+
+the colnames of the data
+```{r}
+cat(colnames(dat_Team8))
+```
+
+change dob to age and remove NA values
+what to remove
+- education --- remove NA
+- dob --- remove 9997, 9999
+- mstat --- remove 9
+```{r}
+#dat_filter <- dat_Team8 %>% 
+#    mutate(age = 2018 - dob) %>% 
+#    filter(!(dob %in% c(9999, 9997))) %>% 
+#    filter(mstat != 9) %>%
+#    na.omit()
+#cat("Before filtered", nrow(dat_Team8), "\n")
+#cat("After  filtered", nrow(dat_filter), "\n")
+#head(dat_filter[, c("dob", "age")])
+
+# start preprocessing
+dat <- dat_Team8
+
+# age
+dat <- dat %>% mutate(age = 2018 - dob)
+#head(dat_prep[, c("dob", "age")])
+
+# mstat
+# Marital Status: 1=Separated, 2=Divorced, 3=Married, 4=Single- never married, 5=Widowed
+# dat$mstat2 <- c("Separated", "Divorced", "Married", "unmarried", "Widowed")[dat$mstat]
+dat <- dat %>% filter(mstat != 9)
+dat$mstat2 <- c("Separated/Divorced", "Separated/Divorced", "Married", "Unmarried", "Widowed")[dat$mstat]
+dat$mstat2 <- factor(
+    dat$mstat2, 
+    levels = c("Separated/Divorced", "Married", "Unmarried", "Widowed"))
+
+dat_prep <- dat
+head(dat_prep[, c("mstat", "mstat2", "dob", "age")], 10)
+```
+
+
+variables for disease
+```{r}
+disease <- c("arthritis", "backpain", "heartprob", "stroke", "hbp", "diabetes", "lungprob", "cancer", "cogprob", "depression", "obesity", "neuroprob")
+print(disease)
+print(length(disease))
+```
+
+**fix the disease condition of doctor 1, 2, 4 vs doctor 3**
+change Doctor 3 *(1 = Yes, 0 = No)* to Doctor 1, 2, 4 *(1 = Yes, 2 = No)*
+```{r}
+dat <- dat_prep
+idx_doc3 <- dat$doctor == 3
+idx_dis  <- which(colnames(dat) %in% disease)
+dat[idx_doc3, idx_dis] <- ifelse(dat[idx_doc3, idx_dis] == 0, 2, 1)
+dat_health12 <- dat
+print(nrow(dat_health12))
+head(dat_health12)
+```
+
+change Doctor 1, 2, 4 *(1 = Yes, 2 = No)* to Doctor 3 *(1 = Yes, 0 = No)*
+```{r}
+dat <- dat_prep
+idx_doc3 <- dat$doctor == 3
+idx_dis  <- which(colnames(dat) %in% disease)
+dat[-idx_doc3, idx_dis] <- ifelse(dat[-idx_doc3, idx_dis] == 2, 0, 1)
+dat_health10 <- dat
+print(nrow(dat_health10))
+head(dat_health10)
+```
+
+```{r}
+dat_no_disease <- dat_Team8 %>% 
+    select(-c(arthritis, backpain, heartprob, stroke, hbp, diabetes, 
+              lungprob, cancer, cogprob, depression, obesity, neuroprob))
+head(dat_no_disease, 3)
+```
+
+
+Note:
+Marital Status: 1=Separated, 2=Divorced, 3=Married, 4=Single- never married, 5=Widowed, 
+
+# Explore Variables
+
+**list of variables**
+sex education race mstat dob arthritis backpain heartprob stroke hbp diabetes lungprob cancer cogprob depression obesity neuroprob doctor
+
+
+## All the unique values
+```{r}
+lapply(dat_Team8, unique)
+```
+
+## Count the covariates
+```{r}
+#dat <- dat_Team8 %>% 
+#    select(-c(arthritis, backpain, heartprob, stroke, hbp, diabetes, 
+#              lungprob, cancer, cogprob, depression, obesity, neuroprob))
+dat <- dat_no_disease
+head(dat, 3)
+```
+
+count the covariates
+```{r}
+lapply(dat, table, exclude = NULL)
+```
+
+## Year / Age
+```{r}
+cat(sort(unique(dat$dob)))
+```
+
+```{r}
+dob <- dat_no_disease$dob
+cat(paste("1931-1940", sum((1931 <= dob) & (dob <= 1940))), "\n")
+cat(paste("1941-1950", sum((1941 <= dob) & (dob <= 1950))), "\n")
+cat(paste("1951-1960", sum((1951 <= dob) & (dob <= 1960))), "\n")
+cat(paste("1961-1970", sum((1961 <= dob) & (dob <= 1970))), "\n")
+cat(paste("1971-1980", sum((1971 <= dob) & (dob <= 1980))), "\n")
+cat(paste("1981-1990", sum((1981 <= dob) & (dob <= 1990))), "\n")
+cat(paste("1991-2000", sum((1991 <= dob) & (dob <= 2000))))
+```
+
+## count each covariates with mstat
+```{r}
+lapply(dat, function(x){table(x, dat$mstat)})
+```
+
+# pairwise comparison
+```{r}
+#dat <- dat_Team8 %>% select(-c(arthritis, backpain, heartprob, stroke, hbp, diabetes, lungprob, cancer, cogprob, depression, obesity, neuroprob))
+#head(dat, 3)
+dat <- dat_no_disease
+head(dat)
+```
+
+
+```{r}
+dat$mstat <- as.character(dat$mstat)
+gp <- ggpairs(dat, 
+        aes(colour = mstat, alpha = 0.4),
+        diag=list(continuous="bar"))
+#for (idx in 1:4){
+#    gp[idx, idx] <- gp[idx, idx] + geom_histogram(bins = 12)
+#} # end for
+gp
+```
+
+# Compare mstat and proportion of each disease
+
+## with inforamtion of doctor
+```{r}
+dat <- dat_health12
+dat <- dat %>% select(
+    mstat2, doctor, 
+    arthritis, backpain, heartprob, stroke, hbp, diabetes, lungprob, 
+    cancer, cogprob, depression, obesity, neuroprob)
+
+dat <- dat %>% 
+    gather(disease, health_condition, -mstat2, -doctor) %>% 
+    group_by(disease, health_condition, mstat2, doctor) %>% 
+    summarize(Count = n())
+dat$health_condition <- factor(as.character(dat$health_condition), levels = c("2", "1"))
+#dat$mstat2 <- c("Separated", "Divorced", "Married", "unmarried", "Widowed")[dat$mstat]
+dat$doctor <- paste("Doctor", dat$doctor)
+head(dat)
+```
+
+```{r}
+gp <- ggplot(dat, aes(x=disease, y=Count, fill=health_condition))
+gp <- gp +
+    #geom_bar(stat="identity") + 
+    geom_bar(stat="identity", position = "fill") +
+    scale_y_continuous(labels = percent_format()) +
+    scale_fill_manual(values = c("#b3cde3", "#fbb4ae")) + 
+    #scale_fill_manual(values = c("#b3cde3", "#b3cde3", "#fbb4ae")) + 
+        # red, blue
+        # blue   #b3cde3
+        # green  #ccebc5
+        # red    #fbb4ae
+    
+    facet_grid(doctor~mstat2) + 
+    labs(fill="Health Condition") + 
+    xlab("Disease") +
+    ylab("Proportion") +
+    #coord_flip() +
+    theme(
+        plot.title  = element_text(hjust = 0.5),
+        axis.title  = element_text(size=20, face="bold"),
+        axis.text.y = element_text(size=10, face="bold"),
+        axis.text.x = element_text(size=5, face="bold",
+            angle=90, hjust=1, vjust=0.4)) 
+print(gp)
+```
+
+```{r}
+ggsave("Disease Proportion vs Marriage vs Doctor.png", 
+       plot = gp, dpi = 300, height = 10, width = 10)
+```
+
+## remove the doctor information to plot the spline plot
+```{r}
+dat <- dat_health12
+dat <- dat %>% select(
+    mstat2, 
+    arthritis, backpain, heartprob, stroke, hbp, diabetes, lungprob, 
+    cancer, cogprob, depression, obesity, neuroprob)
+
+dat <- dat %>% 
+    gather(disease, health_condition, -mstat2) %>% 
+    group_by(disease, health_condition, mstat2) %>% 
+    summarize(Count = n())
+dat$health_condition <- factor(as.character(dat$health_condition), levels = c("2", "1"))
+#dat$mstat2 <- c("Separated", "Divorced", "Married", "unmarried", "Widowed")[dat$mstat]
+head(dat)
+```
+
+```{r}
+gp <- ggplot(dat, aes(x=disease, y=Count, fill=health_condition))
+gp <- gp +
+    #geom_bar(stat="identity") + 
+    geom_bar(stat="identity", position = "fill") +
+    scale_y_continuous(labels = percent_format()) +
+    scale_fill_manual(values = c("#b3cde3", "#fbb4ae")) + 
+    #scale_fill_manual(values = c("#b3cde3", "#b3cde3", "#fbb4ae")) + 
+        # red, blue
+        # blue   #b3cde3
+        # green  #ccebc5
+        # red    #fbb4ae
+    
+    facet_grid(~mstat2) + 
+    labs(fill="Health Condition") + 
+    xlab("Disease") +
+    ylab("Proportion") +
+    #coord_flip() +
+    theme(
+        plot.title  = element_text(hjust = 0.5),
+        axis.title  = element_text(size=20, face="bold"),
+        axis.text.y = element_text(size=5, face="bold"),
+        axis.text.x = element_text(size=10, face="bold",
+            angle=90, hjust=1, vjust=0.4)) 
+print(gp)
+```
+
+```{r}
+ggsave("Disease Proportion vs Marriage.png", 
+       plot = gp, dpi = 300, height = 3, width = 10)
+```
+
+# Visualize health data
+```{r}
+dat <- dat_health12 
+idx_dis <- which(colnames(dat) %in% disease)
+mat <- dat[,idx_dis] %>% as.matrix
+head(mat)
+```
+
+```{r}
+head(dat[, -idx_dis])
+```
+
+```{r}
+colnames(dat[, -idx_dis])
+```
+
+```{r}
+range(dat$age)
+```
+
+
+```{r}
+# Annocation: mstat
+color <- brewer.pal(n = 5, name = "Set3")
+names(color) <- c("1", "2", "3", "4", "5")
+ha1 = HeatmapAnnotation(
+    df = data.frame(marriage = dat$mstat), 
+    col = list(marriage = color),
+    which = "row", 
+    width = unit(1, "cm"),
+    show_legend = TRUE)
+
+# Annocation: doctor
+color <- c("red", "green", "blue", "grey")
+names(color) <- c("1", "2", "3", "4")
+ha2 = HeatmapAnnotation(
+    df = data.frame(doctor = dat$doctor), 
+    col = list(doctor = color),
+    which = "row", 
+    width = unit(1, "cm"),
+    show_legend = TRUE)
+
+# Annocation: sex
+#   1 = Male    
+#   2 = Female 
+color <- c("#b3cde3", "#fbb4ae") # blue, red
+names(color) <- c("1", "2")
+ha3 = HeatmapAnnotation(
+    df = data.frame(sex = dat$sex), 
+    col = list(sex = color),
+    which = "row", 
+    width = unit(1, "cm"),
+    show_legend = TRUE)
+
+# Annocation: race
+#   1 = White 
+#   2 = Black 
+#   3 = Asian 
+#   4 = Other
+color <- c("#ffffb3", "#e5c494", "#fdb462", "#d9d9d9") # yellow, brown, orange, grey
+names(color) <- c("1", "2", "3", "4")
+ha3 = HeatmapAnnotation(
+    df = data.frame(race = dat$race), 
+    col = list(race = color),
+    which = "row", 
+    width = unit(1, "cm"),
+    show_legend = TRUE)
+
+# Annocation: age
+#color <- brewer.pal(n = 7, name = "PuBu")[-1] # purple to blue scale
+#color <- colorRampPalette(color)(90 - 20 + 1)
+#names(color) <- as.character(20:90)
+ha4 = HeatmapAnnotation(
+    #df = data.frame(age = dat$age), 
+    points = row_anno_barplot(dat$age),
+    #col = list(age = color),
+    which = "row",
+    width = unit(3, "cm"))
+    #show_legend = TRUE)
+
+# Heatmap Matrix
+ht = Heatmap(
+    mat, 
+    name = "health status", 
+    column_title = "Health Condition",
+    col = c("#e41a1c", "#b3e2cd"), # red, light green
+    #cluster_rows=FALSE,
+    cluster_rows=TRUE,
+    cluster_columns=FALSE,
+    show_row_names = FALSE)
+
+# Plot the result
+ht_list = ht + ha1 + ha2 + ha3 + ha4
+draw(ht_list)
+```
+
+## sort by mstat
+```{r}
+dat <- dat_health12 
+dat <- dat %>% arrange(mstat, sex, education, age)
+idx_dis <- which(colnames(dat) %in% disease)
+mat <- dat[,idx_dis] %>% as.matrix
+#head(mat)
+#head(dat)
+```
+
+```{r}
+# Annocation: mstat
+color <- brewer.pal(n = 5, name = "Set3")
+names(color) <- c("1", "2", "3", "4", "5")
+ha1 = HeatmapAnnotation(
+    df = data.frame(marriage = dat$mstat), 
+    col = list(marriage = color),
+    which = "row", 
+    width = unit(1, "cm"),
+    show_legend = TRUE)
+
+# Annocation: doctor
+#color <- c("red", "green", "blue", "grey")
+#names(color) <- c("1", "2", "3", "4")
+color <- brewer.pal(n = 4, name = "Set1")
+names(color) <- c("1", "2", "3", "4")
+ha2 = HeatmapAnnotation(
+    df = data.frame(doctor = dat$doctor), 
+    col = list(doctor = color),
+    which = "row", 
+    width = unit(1, "cm"),
+    show_legend = TRUE)
+
+# Annocation: sex
+#   1 = Male    
+#   2 = Female 
+color <- c("#b3cde3", "#fbb4ae") # blue, red
+names(color) <- c("1", "2")
+ha3 = HeatmapAnnotation(
+    df = data.frame(sex = dat$sex), 
+    col = list(sex = color),
+    which = "row", 
+    width = unit(1, "cm"),
+    show_legend = TRUE)
+
+# Annocation: race
+#   1 = White 
+#   2 = Black 
+#   3 = Asian 
+#   4 = Other
+color <- c("#ffffb3", "#e5c494", "#fdb462", "#d9d9d9") # yellow, brown, orange, grey
+names(color) <- c("1", "2", "3", "4")
+ha3 = HeatmapAnnotation(
+    df = data.frame(race = dat$race), 
+    col = list(race = color),
+    which = "row", 
+    width = unit(1, "cm"),
+    show_legend = TRUE)
+
+# Annocation: age
+#color <- brewer.pal(n = 7, name = "PuBu")[-1] # purple to blue scale
+#color <- colorRampPalette(color)(90 - 20 + 1)
+#names(color) <- as.character(20:90)
+ha4 = HeatmapAnnotation(
+    #df = data.frame(age = dat$age), 
+    points = row_anno_barplot(dat$age),
+    #col = list(age = color),
+    which = "row",
+    width = unit(3, "cm"))
+    #show_legend = TRUE)
+
+# Heatmap Matrix
+ht = Heatmap(
+    mat, 
+    name = "health status", 
+    column_title = "Health Condition",
+    col = c("#e41a1c", "#b3e2cd"), # red, light green
+    cluster_rows=FALSE,
+    #cluster_rows=TRUE,
+    cluster_columns=FALSE,
+    show_row_names = FALSE)
+
+# Plot the result
+ht_list = ht + ha1 + ha2 + ha3 + ha4
+draw(ht_list)
+```
+
+
+
+```{r}
+#pdf(filePlot, width = WIDTH, height = 10)
+pdf(file.path(workdir, "Heatmap Health Condition.pdf"), width = 10, height = 10)
+ht_list = ht + ha1 + ha2 + ha3 + ha4
+draw(ht_list)
+dev.off()
+```
+
+
+
+
+# Visualize the distribution of every variables
+
+```{r}
+dat <- dat_Team8 %>% select(-c(arthritis, backpain, heartprob, stroke, hbp, diabetes, lungprob, cancer, cogprob, depression, obesity, neuroprob))
+head(dat, 3)
+```
+
+```{r}
+colnames(dat)
+```
+
+sex vs marriage
+```{r}
+plot(jitter(sex, 0.5) ~ jitter(mstat, 1.5), data = dat, pch = 20, 
+     ylab = "sex", xlab = "marriage")
+#axis(2, labels=c(1, 2))
+```
+
+education vs marriage
+```{r}
+plot(jitter(race, 0.5) ~ jitter(mstat, 1.5), data = dat, pch = 20, 
+     ylab = "race", xlab = "marriage")
+#axis(2, labels=c(1, 2))
+```
+
+# Analysis: Proportion test --- marriage vs disease
+
+```{r}
+dat <- dat_health10
+idx_dis <- which(colnames(dat) %in% c("mstat2", disease))
+dat <- dat[, idx_dis]
+head(dat)
+```
+
+Marital Status: 1=Separated, 2=Divorced, 3=Married, 4=Single- never married, 5=Widowed, 
+```{r}
+tmp <- dat %>% gather(disease, condition, -mstat2)
+tmp <- tmp %>% group_by(disease, mstat2) %>% summarize(freq = sum(condition)/n())
+tmp <- tmp %>% spread(mstat2, freq)
+#tmp <- tmp %>% set_names(c(
+#    "Disease", "Separated", "Divorced", 
+#    "Married", "Unmarried", "Widowed"))
+colnames(tmp)[1] <- "Disease"
+dat_prob <- tmp
+dat_prob
+```
+
+
+```{r}
+gp <- ggparcoord(dat_prob, columns = 2:5, groupColumn = 'Disease', scale = 'globalminmax') +
+    ggtitle("Proportion of Each Disease in Different Marriage Status") +
+    xlab("Marriage Status") +
+    ylab("Proportion") +
+    theme(
+        plot.title  = element_text(size=15, face = "bold", hjust = 0.5),
+        axis.title  = element_text(size=15, face="bold"),
+        axis.text.y = element_text(size=10, face="bold"),
+        axis.text.x = element_text(size=10, #face="bold",
+            angle=90, hjust=1, vjust=0.4))
+gp
+```
+
+```{r}
+ggsave("Disease Proportion vs Marriage_parallel.png", 
+       plot = gp, dpi = 300, height = 5, width = 7)
+```
+
+
+```{r}
+tmp <- dat_prob[, -1] %>% gather(mstat, prob)
+tmp$mstat <- factor(tmp$mstat, levels = colnames(dat_prob[,-1]))
+gp  <- tmp %>% 
+    ggplot(aes(x = mstat, y = prob)) + 
+    geom_boxplot() +
+    ggtitle("Proportion of Each Disease in Different Marriage Status") +
+    xlab("Marriage Status") +
+    ylab("Proportion") +
+    theme(
+        plot.title  = element_text(size=15, face = "bold", hjust = 0.5),
+        axis.title  = element_text(size=15, face="bold"),
+        axis.text.y = element_text(size=10, face="bold"),
+        axis.text.x = element_text(size=15, #face="bold",
+            angle=90, hjust=1, vjust=0.4))
+gp
+```
+
+```{r}
+ggsave("Disease Proportion vs Marriage_boxplot.png", 
+       plot = gp, dpi = 300, height = 5, width = 7)
+```
+
+
+
+```{r}
+tmp <- table(dat_health10$mstat2)
+num_cat <- as.numeric(tmp)
+names(num_cat) <- names(tmp)
+print(num_cat)
+```
+
+```{r}
+tmp <- data.frame(
+    mstat2 = colnames(dat_prob[,-1]),
+    value = num_cat)
+tmp$mstat2 <- factor(tmp$mstat2, levels = colnames(dat_prob[,-1]))
+gp <- tmp %>%
+    ggplot(aes(x = mstat2, y = value)) +
+    geom_bar(stat = "identity") + 
+    ggtitle("Number of Patients in Different Marriage Status") +
+    xlab("Marriage Status") +
+    ylab("Number") +
+    theme(
+        plot.title  = element_text(size=15, face = "bold", hjust = 0.5),
+        axis.title  = element_text(size=15, face="bold"),
+        axis.text.y = element_text(size=10, face="bold"),
+        axis.text.x = element_text(size=15, #face="bold",
+            angle=90, hjust=1, vjust=0.4))
+gp
+```
+
+
+```{r}
+tmp <- data.frame(marriage = 2, others = c(1,3,4))
+group_idx <- as.matrix(tmp)
+print(group_idx)
+```
+
+
+```{r}
+tmp <- as.matrix(dat_prob[,-1])
+res_prob_test <- apply(group_idx, 1, function(idx){
+    #print(idx)
+    #print(colnames(tmp[,idx]))
+    
+    res <- apply(tmp[, idx], 1, function(prob) {
+        #print(prob)
+        res <- prop.test(
+            x = prob * num_cat[idx], 
+            n = num_cat[idx], 
+            alternative = 'less', 
+            correct = FALSE)
+        return(res)
+    }) # end innter lapply
+    
+    return(res)
+}) # end outer apply
+
+names(res_prob_test) <- paste("marriage_vs", colnames(tmp)[c(1, 3, 4)], sep = "_")
+for(idx in seq_along(res_prob_test)){
+    names(res_prob_test[[idx]]) <- as.character(dat_prob$Disease)
+}
+#print(res_prob_test)
+```
+
+```{r}
+tmp <- lapply(res_prob_test, function(group){
+    unlist(lapply(group, function(x){
+        x$p.value
+    })) # end inner lapply
+}) # end outer lapply
+res_test_pval <- as.data.frame(tmp)       
+```
+
+```{r}
+ht <- Heatmap(
+    t(res_test_pval),
+    name = "P value", 
+    column_title = "Two Sample Prop Test P.value",
+    col = c("#e41a1c", "#b3e2cd"), # red, light green
+    cluster_rows=FALSE,
+    cluster_columns=FALSE,
+    show_row_names = TRUE,
+    row_names_side = "left")
+    #column_names_gp = gpar(fontsize = 10))
+draw(ht, padding = unit(10, "mm"))
+```
+
+convert pvalue to binary
+```{r}
+res_pval_isless05 <- ifelse(res_test_pval <= 0.05, "yes", "no")
+ht <- Heatmap(
+    t(res_pval_isless05),
+    name = "Is Significant", 
+    column_title = "Two Sample Prop Test P.value",
+    col = c("grey70", "grey10"),
+    cluster_rows=FALSE,
+    cluster_columns=FALSE,
+    show_row_names = TRUE,
+    row_names_side = "left")
+draw(ht, padding = unit(10, "mm"))
+```
+
+
+
+
+# freq: marriage vs disease vs gender
+
+
+```{r}
+dat <- dat_Team8
+dat <- dat %>% 
+    filter(mstat != 9) %>%
+    select(sex, doctor, mstat, arthritis, backpain, heartprob, stroke, hbp, diabetes, lungprob, cancer, cogprob, depression, obesity, neuroprob)
+head(dat)
+```
+
+
+```{r}
+idx <- dat$doctor != 3
+dat[idx, c(-1, -2, -3)] <- ifelse(dat[idx, c(-1, -2, -3)] == 2, 0, 1)
+head(dat)
+```
+
+```{r}
+dat <- dat %>% gather(disease, condition, -doctor, -mstat, -sex)
+dat <- dat %>% 
+    group_by(disease, sex, mstat) %>% 
+    summarize(freq = sum(condition)/n())
+dat <- dat %>% spread(mstat, freq)
+head(dat)
+```
+
+```{r}
+tmp_male <- dat %>% filter(sex == 1)
+tmp_male
+```
+
+```{r}
+boxplot(tmp_male[, -c(1, 2)])
+```
+
+```{r}
+tmp_female <- dat %>% filter(sex == 2)
+tmp_female
+```
+
+```{r}
+boxplot(tmp_female[, -c(1, 2)])
+```
+
+
+
+
+
+
+
+# health data
+
+
+```{r}
+dat %>% filter(doctor == 3) %>% head()
+```
+
+```{r}
+#tmp# <- dat[, c("arthritis", "backpain", "heartprob", "stroke", "hbp", "diabetes", "lungprob", "cancer", "cogprob", "depression", "obesity", "neuroprob"]
+#)]
+tmp <- dat[, 6:17]
+head(tmp)
+```
+
+# marriage data
+```{r}
+table(dat$mstat)
+```
+
+#variable: education
+
+Education: 1=Less than High School, 2=High School graduate, 3= Some College, 4=College Graduate, 5=Post graduate
+
+```{r}
+table(dat$education)
+```
+
+# Variable: race
+Race: 1=White, 2=Black, 3=Asian, 4=Other
+```{r}
+unique(dat$race)
+```
+
+```{r}
+sum(is.na(dat$race))
+```
+
+# variable: gender
+Gender: 1=Male, 2=Female
+```{r}
+unique(dat$SEX)
+```
+
+```{r}
+table(dat$SEX)
+```
+
+```{r}
+sum(is.na(dat$SEX))
+```
+
+
+# Variable: age
+
+```{r}
+sum(dat$dob > 2020)
+```
+
+
+```{r}
+unique(dat$dob[dat$dob > 2020])
+#nrow(dat)
+```
+
+
+```{r}
+tmp <- dat %>% filter(dob < 2018)
+hist(2018 - tmp$dob)
+```
+
+Number of patients from different regions
+```{r}
+table(dat$doctor)
+```
+
+
+```{r}
+boxplot(2018 - tmp$dob)
+```
+
+```{r}
+hist(dat$dob, breaks = sequence())
+#head(dat$dob)
+```
+
+
+```{r}
+lapply(tmp, function(x){
+    tapply(x, dat$doctor, function(x){table(x)})
+})
+
+```
+
