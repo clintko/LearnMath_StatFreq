@@ -1,0 +1,195 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+# Background
+
+**Possible variables related to HDLC (provided by Amy)**
+
+- HDLC (period 03)
+- Age (AGE)
+- smoking (CURSMOKE)
+- BMI
+- glucose (GLUCOSE)
+- PREVCHD
+- cholesterol (TOTCHOL)
+
+**HDLC values**  
+it turns out that if HDLC 
+
+- `< 40` => not good
+- `40 ~ 60` => normal
+- `> 60` => very good
+
+![](https://i1.wp.com/www.cholesterolratios.com/wp-content/uploads/2017/06/cholesterol-levels-chart-OFFICIAL2.jpg?resize=840%2C439&ssl=1)
+<br/>
+
+**our main question:**  
+Is gender associated with HDL?
+
+# set up environment
+```{r}
+library(GGally)
+library(tidyverse)
+
+```
+
+
+```{r}
+#datadir <- "D:\\GitRepo\\Statistics\\BIOS706\\Midterm"
+#workdir <- "D:\\GitRepo\\Statistics\\BIOS706\\Proj"
+datadir <- "/media/clint/Data/GitRepo/Statistics/BIOS706/Midterm"
+workdir <- "/media/clint/Data/GitRepo/Statistics/BIOS706/Proj"
+source("/media/clint/Data/GitRepo/Statistics/theme_publication.R")
+
+setwd(workdir)
+```
+
+# Explore the data
+### Read in the data
+```{r}
+dat_fham <- read_csv(file.path(datadir, "frmgham2.csv"))
+```
+
+all the variables
+```{r}
+colnames(dat_fham)
+```
+
+### explore the values in HDLC
+
+- how many observations in period 03
+- how many missing for HDL
+```{r}
+cat("Num of Observation in each PERIOD")
+tmp <- table(dat_fham$PERIOD); print(tmp)
+cat("\nNum of NA in HDLC in each PERIOD\n")
+tmp <- tapply(dat_fham$HDLC, dat_fham$PERIOD, function(x){sum(is.na(x))}); print(tmp)
+```
+
+
+The histogram shows that there is an extreme high value. Currently I have seen report showing that the HDLC can be up to 100. 
+```{r}
+gp <- ggplot(dat_fham, aes(x = HDLC)) + 
+    geom_histogram(binwidth = 2)
+gp
+```
+
+Preprocess
+```{r}
+dat <- dat_fham
+
+# 1 = Men, 2 = Women
+dat$SEX_LAB <- c("Male", "Female")[dat$SEX]
+
+# 1 = Men, 2 = Women
+dat$HDLC_LAB <- cut(dat$HDLC, breaks = c(0, 40, 60, 200), labels = c("Too Low", "Normal", "High"))
+
+# filter out NA values in HDLC
+dat_prep <- dat %>% filter(!is.na(HDLC))
+```
+
+check period
+```{r}
+table(dat_prep$PERIOD)
+```
+
+information: sex
+```{r}
+table(dat_prep$SEX_LAB)
+```
+
+information: HDLC
+```{r}
+table(dat_prep$HDLC_LAB)
+```
+
+we will also perform chi-square test below
+
+# EDA
+
+it turns out that most variables do not correlated with HDLC
+```{r}
+#dat <- dat_prep %>% select(HDLC, AGE, CURSMOKE, BMI, GLUCOSE, PREVCHD, TOTCHOL)
+dat <- dat_prep %>% select(HDLC, LDLC, AGE, BMI, GLUCOSE, TOTCHOL)
+ggpairs(dat)
+```
+
+# gender vs HDLC
+
+```{r}
+gp <- ggplot(dat_prep, aes(y = HDLC, x = SEX_LAB, fill = SEX_LAB)) +
+    geom_boxplot() +
+    xlab("Gender") +
+    theme_Publication() + 
+    theme(legend.position="none")
+gp
+```
+
+```{r}
+gp <- ggplot(dat_prep, aes(y = HDLC, x = HDLC_LAB, fill = SEX_LAB)) +
+    geom_boxplot() +
+    geom_jitter(alpha = 0.05) +
+    xlab("HDLC Status") +
+    labs(fill = "Gender") +
+    theme_Publication() +
+    theme(
+        legend.position="right", 
+        legend.direction = "vertical",
+        legend.key.width = unit(2, "line"),
+        legend.key.height = unit(2, "line"))
+gp
+```
+
+
+```{r}
+gp <- ggplot(dat_prep, aes(x = HDLC, fill = SEX_LAB)) +
+    geom_histogram() +
+    xlab("Values") +
+    ylab("Count") +
+    theme_Publication() +
+    labs(fill="Gender") +
+    #theme(legend.title = "Gender") +
+    facet_grid(SEX_LAB~.)
+gp
+
+```
+
+
+# two sample test
+Below we found that both t test and wilcoxin test (two-sided test) show the HDLC is significant between male and female.
+
+- t test
+    - t statistic: 18.69
+    - p-value < 2.2e-16
+    - 95% CI: (8.89, 10.97)
+- Wilcoxin
+    - W statistic: 1562400
+    - p-value < 2.2e-16
+    
+
+```{r}
+tmp <- split(dat_prep$HDLC, dat_prep$SEX_LAB)
+```
+
+```{r}
+t.test(tmp$Female, tmp$Male, alternative = "two.sided")
+```
+
+```{r}
+wilcox.test(tmp$Female, tmp$Male)
+```
+
+# chi-square test
+```{r}
+tab <- table(dat_prep$HDLC_LAB, dat_prep$SEX_LAB)
+print(tab)
+```
+
+```{r}
+res <- chisq.test(tab)
+res
+#res$expected
+```
+
+
